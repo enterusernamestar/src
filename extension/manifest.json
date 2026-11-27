@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "SRC Opera GX boundary sensor",
+  "version": "1.0.0",
+  "description": "Inspects outbound request bodies at the Opera GX application boundary, before TLS.",
+  "permissions": ["nativeMessaging"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["boundary.js"],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": true
+    }
+  ]
+}

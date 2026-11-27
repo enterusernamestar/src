@@ -28,4 +28,64 @@ Both planes run the **same** verdict function (`src/provenance.py`) against the
 **same** anchor index, so they cannot disagree about what "forbidden content from
 a forbidden path" means.
 
-The GX boundary hook also inspects *wrapped* payload names (`File.name`,
+The GX boundary hook also inspects *wrapped* payload names (`File.name`, 
+`webkitRelativePath`, FormData filenames) that try to smuggle a protected path —
+but that is **corroborating** evidence only; it never blocks on its own.
+
+## Resource-light by construction
+
+- ETW `Microsoft-Windows-Kernel-File` with narrowed keywords; `FileObject -> path`
+  resolved once on Create and cached (bounded LRU), so steady state is a dict hit.
+- Anchors are 12-byte digest keys with a per-source cap; no raw file bytes retained.
+- One streaming CDC pass per body, **early exit on first evidence**.
+- `min_body` skip, `max_inspect_bytes` ceiling, `stream_large_bodies` on the proxy.
+- Taint ledger has TTL + PID cap; scope `taint` searches only the sources that PID
+  actually touched (global sweep is opt-in because it costs CPU).
+- Index re-hash is triggered by mtime/size drift only, never per flow.
+
+## Install
+
+```powershell
+python -m venv .venv; .\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+python -m src setup                 # protected paths + Opera GX image
+python -m src doctor
+# load extension/ unpacked in Opera GX (developer mode), copy its ID, then:
+python -m src boundary --extension-id <id>
+python -m src start --extension-id <id>
+```
+
+`start` installs the mitmproxy root CA into **Trusted Root Certification
+Authorities** (`LocalMachine\Root`). Chromium's Chrome Root Store honors
+locally-added roots on Windows, so Opera GX accepts interception without any
+`opera://flags` change; restart Opera GX if you still see
+`NET::ERR_CERT_AUTHORITY_INVALID`.
+
+QUIC is turned off through Opera **enterprise policy** (`QuicAllowed=false`) so
+HTTP/3 cannot bypass the TLS plane. That is a browser policy, not a network block,
+and uninstall restores it.
+
+## Uninstall
+
+```powershell
+python -m src uninstall
+```
+
+Stops the engine, removes WFP redirect filters, removes the boundary native host
+and its registry entries, restores the QUIC policy, **removes the root CA from
+Trusted Root**, restores WinINET proxy settings, removes autorun, deletes state,
+then prints a verification report.
+
+## Tests
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+`tests/test_policy.py` pins the rule: taint alone allows, clean body from a tainted
+process allows, content evidence blocks per-flow, evidence is bound to the
+protected path, and `per_flow_only` cannot be turned off.
+
+## License
+
+MIT.
